@@ -1,108 +1,163 @@
-const express = require('express');
-const {ObjectId} = require('mongodb');
+const express = require('express')
 const app = express()
+const cors = require('cors')
+require('dotenv').config()
+const mongoose = require('mongoose')
 
+// Middleware
+app.use(cors())
+app.use(express.static('public'))
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 
-const logs = [];
-
-app.use(express.static('./public'));
-app.use(express.urlencoded({extended:false}));
-
-
+// Routes
 app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/views/index.html')
-});
-
-app.post('/api/users',(req,res)=>{
-    const {username} = req.body;
-    if(!username){
-        res.status(400).send("Error : Username not found");
-    }
-    logs.push({"username" : username, "_id" : (new ObjectId()).toString() ,"count": 0 ,"log" : []});    
-    const getUsers = logs.map(el=>{
-        return { "username" : el["username"], "_id" : el["_id"]};
-    });
-    const thisUser = getUsers.filter(el=>{
-        return el["username"] === username;
-    });
-    res.json(
-        thisUser[0]
-    );
-});
-
-app.get('/api/users',(req,res)=>{
-    const getUsers = logs.map(el=>{
-        return {"_id" : el["_id"], "username" : el["username"]};
-    });
-    res.json(getUsers);
-});
-
-app.post('/api/users/:_id/exercises',(req,res)=>{
-const { _id } = req.params;
-const { description, duration } = req.body;
-let { date } = req.body;
-const user = logs.find(user => user._id === _id);
-    if(!description || isNaN(duration) || !duration){
-        return res.status(404).send("Invalid ID or missing description/duration");
-    }
-    if (!user) {
-        return res.status(404).send("Error: User not found");
-    }
-    if (!date) {
-        date = new Date().toDateString();
-    } else {
-        date = new Date(date).toDateString();
-    }
-
-        const filteredLogsIdx = logs.findIndex(el=>{
-            return el["_id"] === _id.toString();
-        });
-        
-        user.log.push({ description, duration: parseInt(duration), date });
-        user.count++;
-
-        res.json({
-        _id: user._id,
-        username: user.username,
-        date,
-        duration: parseInt(duration),
-        description
-        });
-    });
-
-app.get('/api/users/:_id/logs',(req,res)=>{
-    const {_id} = req.params;
-    const {limit,from,to} = req.query;
-
-    const qlog = logs.filter(loger => loger["_id"] === _id.toString());
-
-    if(qlog){
-        let filteredLogs = qlog[0]["log"];
-
-        if (from && to) {
-            filteredLogs = filteredLogs.filter(log => {
-                const logDate = new Date(log["date"]);
-                return logDate >= new Date(from) && logDate <= new Date(to);
-            });
-        }
-
-        if (limit) {
-            filteredLogs = filteredLogs.slice(0, parseInt(limit));
-        }
-
-
-        res.json({
-            username: qlog[0]["username"],
-            _id: qlog[0]["_id"],
-            count: filteredLogs.length,
-            log: filteredLogs
-        });
-    }
-    else{
-        res.status(500).send("error Invalid Id or Query");
-    }
+  res.sendFile(__dirname + '/views/index.html')
 })
 
-const listener = app.listen(process.env.PORT || 3000, () => {
-    console.log('Your app is listening on port ' + listener.address().port)
-});
+// Database Connection
+mongoose.connect('mongodb://localhost:27017/FreeCodeCamp', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log('Connected to MongoDB'))
+.catch(err => console.error('MongoDB connection error:', err))
+
+// Schema and Model
+const personSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  count: { type: Number, default: 0 },
+  log: [{
+    description: { type: String, required: true },
+    duration: { type: Number, required: true },
+    date: { type: String, required: true }
+  }]
+})
+
+const Person = mongoose.model('Person', personSchema)
+
+// API Endpoints
+app.post('/api/users', async (req, res) => {
+  try {
+    const { username } = req.body
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' })
+    }
+
+    const newPerson = new Person({ username })
+    const savedPerson = await newPerson.save()
+    res.json({ username: savedPerson.username, _id: savedPerson._id })
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ error: 'Username already exists' })
+    }
+    console.error(err)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await Person.find({}, 'username _id')
+    res.json(users)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.post('/api/users/:_id/exercises', async (req, res) => {
+  try {
+    const { _id } = req.params
+    let { description, duration, date } = req.body
+
+    // Validation
+    if (!description || !duration) {
+      return res.status(400).json({ error: 'Description and duration are required' })
+    }
+
+    duration = parseInt(duration)
+    if (isNaN(duration)) {
+      return res.status(400).json({ error: 'Duration must be a number' })
+    }
+
+    date = date ? new Date(date) : new Date()
+    if (isNaN(date.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' })
+    }
+
+    const user = await Person.findById(_id)
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    const exercise = {
+      description,
+      duration,
+      date: date.toDateString()
+    }
+
+    user.log.push(exercise)
+    user.count = user.log.length
+    await user.save()
+
+    res.json({
+      _id: user._id,
+      username: user.username,
+      date: exercise.date,
+      duration: exercise.duration,
+      description: exercise.description
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/api/users/:_id/logs', async (req, res) => {
+  try {
+    const { from, to, limit } = req.query
+    const user = await Person.findById(req.params._id)
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    let log = [...user.log]
+
+    // Filter by date range
+    if (from) {
+      const fromDate = new Date(from)
+      log = log.filter(ex => new Date(ex.date) >= fromDate)
+    }
+    if (to) {
+      const toDate = new Date(to)
+      log = log.filter(ex => new Date(ex.date) <= toDate)
+    }
+
+    // Apply limit
+    if (limit) {
+      log = log.slice(0, parseInt(limit))
+    }
+
+    res.json({
+      _id: user._id,
+      username: user.username,
+      count: log.length,
+      log: log.map(ex => ({
+        description: ex.description,
+        duration: ex.duration,
+        date: ex.date
+      }))
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// Server
+const PORT = process.env.PORT || 3000
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`)
+})
