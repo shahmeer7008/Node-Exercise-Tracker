@@ -6,7 +6,7 @@ const app = express();
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
@@ -26,7 +26,7 @@ const exerciseSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   description: { type: String, required: true },
   duration: { type: Number, required: true },
-  date: { type: Date }
+  date: { type: Date, default: Date.now }
 });
 
 // Models
@@ -38,11 +38,11 @@ app.post('/api/users', async (req, res) => {
   try {
     const { username } = req.body;
     
-    if (!username) {
+    if (!username || username.trim() === '') {
       return res.status(400).json({ error: 'Username is required' });
     }
     
-    const newUser = new User({ username });
+    const newUser = new User({ username: username.trim() });
     const savedUser = await newUser.save();
     
     res.json({
@@ -74,13 +74,16 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     const { _id } = req.params;
     let { description, duration, date } = req.body;
     
-    // Convert duration to number
-    duration = parseInt(duration);
-    
-    // Validate input
-    if (!description || !duration || isNaN(duration)) {
-      return res.status(400).json({ error: 'Description and valid duration are required' });
+    // Validation
+    if (!description || description.trim() === '') {
+      return res.status(400).json({ error: 'Description is required' });
     }
+    
+    if (!duration || isNaN(duration)) {
+      return res.status(400).json({ error: 'Duration must be a number' });
+    }
+    
+    duration = parseInt(duration);
     
     // Handle date
     let exerciseDate;
@@ -102,16 +105,16 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     // Create exercise
     const exercise = new Exercise({
       userId: _id,
-      description,
+      description: description.trim(),
       duration,
       date: exerciseDate
     });
     
     const savedExercise = await exercise.save();
     
-    // Return response
+    // Return response (TEST 8)
     res.json({
-      _id: user._id,
+      _id: user._id.toString(),
       username: user.username,
       date: savedExercise.date.toDateString(),
       duration: savedExercise.duration,
@@ -158,7 +161,10 @@ app.get('/api/users/:_id/logs', async (req, res) => {
     }
     
     // Get exercises with limit
-    let exercisesQuery = Exercise.find(query).select('description duration date -_id');
+    let exercisesQuery = Exercise.find(query)
+      .select('description duration date -_id')
+      .sort({ date: 1 });
+    
     if (limit) {
       limit = parseInt(limit);
       if (isNaN(limit)) {
@@ -169,16 +175,16 @@ app.get('/api/users/:_id/logs', async (req, res) => {
     
     const exercises = await exercisesQuery.exec();
     
-    // Format log items
+    // Format log items (TESTS 13,14,15)
     const log = exercises.map(ex => ({
-      description: ex.description,
-      duration: ex.duration,
+      description: String(ex.description),
+      duration: Number(ex.duration),
       date: ex.date.toDateString()
     }));
     
-    // Return response
+    // Return response (TESTS 10,11)
     res.json({
-      _id: user._id,
+      _id: user._id.toString(),
       username: user.username,
       count: log.length,
       log
