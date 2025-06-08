@@ -140,15 +140,18 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       log = log.slice(0, parseInt(limit));
     }
 
+    // Ensure all dates are in the correct dateString format
+    const formattedLog = log.map(ex => ({
+      description: ex.description,
+      duration: ex.duration,
+      date: new Date(ex.date).toDateString() // Force to dateString format
+    }));
+
     res.json({
       _id: user._id,
       username: user.username,
-      count: log.length,
-      log: log.map(ex => ({
-        description: ex.description,
-        duration: ex.duration,
-        date: ex.date // Just use the stored date string directly
-      }))
+      count: formattedLog.length,
+      log: formattedLog
     });
   } catch (err) {
     console.error(err);
