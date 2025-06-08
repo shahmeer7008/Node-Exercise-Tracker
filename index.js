@@ -1,206 +1,108 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const app = express();
+const {ObjectId} = require('mongodb');
+const app = express()
 
-// Middleware
-app.use(cors());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
-app.use(express.static('public'));
 
-// Database connection
-mongoose.connect( 'mongodb://localhost:27017/FreeCodeCamp', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-});
+const logs = [];
 
-// User Schema
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true }
-});
+app.use(express.static('./public'));
+app.use(express.urlencoded({extended:false}));
 
-// Exercise Schema
-const exerciseSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  description: { type: String, required: true },
-  duration: { type: Number, required: true },
-  date: { type: Date, default: Date.now }
-});
 
-// Models
-const User = mongoose.model('User', userSchema);
-const Exercise = mongoose.model('Exercise', exerciseSchema);
-
-// POST /api/users - Create new user
-app.post('/api/users', async (req, res) => {
-  try {
-    const { username } = req.body;
-    
-    if (!username || username.trim() === '') {
-      return res.status(400).json({ error: 'Username is required' });
-    }
-    
-    const newUser = new User({ username: username.trim() });
-    const savedUser = await newUser.save();
-    
-    res.json({
-      username: savedUser.username,
-      _id: savedUser._id.toString()
-    });
-  } catch (err) {
-    if (err.code === 11000) {
-      res.status(400).json({ error: 'Username already taken' });
-    } else {
-      res.status(500).json({ error: 'Server error' });
-    }
-  }
-});
-
-// GET /api/users - Get all users
-app.get('/api/users', async (req, res) => {
-  try {
-    const users = await User.find({}, 'username _id');
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// POST /api/users/:_id/exercises - Add exercise
-app.post('/api/users/:_id/exercises', async (req, res) => {
-  try {
-    const { _id } = req.params;
-    let { description, duration, date } = req.body;
-    
-    // Validation
-    if (!description || description.trim() === '') {
-      return res.status(400).json({ error: 'Description is required' });
-    }
-    
-    if (!duration || isNaN(duration)) {
-      return res.status(400).json({ error: 'Duration must be a number' });
-    }
-    
-    duration = parseInt(duration);
-    
-    // Handle date
-    let exerciseDate;
-    if (date) {
-      exerciseDate = new Date(date);
-      if (isNaN(exerciseDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid date format' });
-      }
-    } else {
-      exerciseDate = new Date();
-    }
-    
-    // Check user exists
-    const user = await User.findById(_id);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Create exercise
-    const exercise = new Exercise({
-      userId: _id,
-      description: description.trim(),
-      duration,
-      date: exerciseDate
-    });
-    
-    const savedExercise = await exercise.save();
-    
-    // Return response (TEST 8)
-    res.json({
-      _id: user._id.toString(),
-      username: user.username,
-      date: savedExercise.date.toDateString(),
-      duration: savedExercise.duration,
-      description: savedExercise.description
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// GET /api/users/:_id/logs - Get exercise log
-app.get('/api/users/:_id/logs', async (req, res) => {
-  try {
-    const { _id } = req.params;
-    let { from, to, limit } = req.query;
-    
-    // Check user exists
-    const user = await User.findById(_id);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Build query
-    let query = { userId: _id };
-    let dateFilter = {};
-    
-    // Handle date filters
-    if (from) {
-      const fromDate = new Date(from);
-      if (isNaN(fromDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid from date' });
-      }
-      dateFilter.$gte = fromDate;
-    }
-    if (to) {
-      const toDate = new Date(to);
-      if (isNaN(toDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid to date' });
-      }
-      dateFilter.$lte = toDate;
-    }
-    if (from || to) {
-      query.date = dateFilter;
-    }
-    
-    // Get exercises with limit
-    let exercisesQuery = Exercise.find(query)
-      .select('description duration date -_id')
-      .sort({ date: 1 });
-    
-    if (limit) {
-      limit = parseInt(limit);
-      if (isNaN(limit)) {
-        return res.status(400).json({ error: 'Limit must be a number' });
-      }
-      exercisesQuery = exercisesQuery.limit(limit);
-    }
-    
-    const exercises = await exercisesQuery.exec();
-    
-    // Format log items (TESTS 13,14,15)
-    const log = exercises.map(ex => ({
-      description: String(ex.description),
-      duration: Number(ex.duration),
-      date: ex.date.toDateString()
-    }));
-    
-    // Return response (TESTS 10,11)
-    res.json({
-      _id: user._id.toString(),
-      username: user.username,
-      count: log.length,
-      log
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Frontend
 app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/views/index.html');
+    res.sendFile(__dirname + '/views/index.html')
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+app.post('/api/users',(req,res)=>{
+    const {username} = req.body;
+    if(!username){
+        res.status(400).send("Error : Username not found");
+    }
+    logs.push({"username" : username, "_id" : (new ObjectId()).toString() ,"count": 0 ,"log" : []});    
+    const getUsers = logs.map(el=>{
+        return { "username" : el["username"], "_id" : el["_id"]};
+    });
+    const thisUser = getUsers.filter(el=>{
+        return el["username"] === username;
+    });
+    res.json(
+        thisUser[0]
+    );
+});
+
+app.get('/api/users',(req,res)=>{
+    const getUsers = logs.map(el=>{
+        return {"_id" : el["_id"], "username" : el["username"]};
+    });
+    res.json(getUsers);
+});
+
+app.post('/api/users/:_id/exercises',(req,res)=>{
+const { _id } = req.params;
+const { description, duration } = req.body;
+let { date } = req.body;
+const user = logs.find(user => user._id === _id);
+    if(!description || isNaN(duration) || !duration){
+        return res.status(404).send("Invalid ID or missing description/duration");
+    }
+    if (!user) {
+        return res.status(404).send("Error: User not found");
+    }
+    if (!date) {
+        date = new Date().toDateString();
+    } else {
+        date = new Date(date).toDateString();
+    }
+
+        const filteredLogsIdx = logs.findIndex(el=>{
+            return el["_id"] === _id.toString();
+        });
+        
+        user.log.push({ description, duration: parseInt(duration), date });
+        user.count++;
+
+        res.json({
+        _id: user._id,
+        username: user.username,
+        date,
+        duration: parseInt(duration),
+        description
+        });
+    });
+
+app.get('/api/users/:_id/logs',(req,res)=>{
+    const {_id} = req.params;
+    const {limit,from,to} = req.query;
+
+    const qlog = logs.filter(loger => loger["_id"] === _id.toString());
+
+    if(qlog){
+        let filteredLogs = qlog[0]["log"];
+
+        if (from && to) {
+            filteredLogs = filteredLogs.filter(log => {
+                const logDate = new Date(log["date"]);
+                return logDate >= new Date(from) && logDate <= new Date(to);
+            });
+        }
+
+        if (limit) {
+            filteredLogs = filteredLogs.slice(0, parseInt(limit));
+        }
+
+
+        res.json({
+            username: qlog[0]["username"],
+            _id: qlog[0]["_id"],
+            count: filteredLogs.length,
+            log: filteredLogs
+        });
+    }
+    else{
+        res.status(500).send("error Invalid Id or Query");
+    }
+})
+
+const listener = app.listen(process.env.PORT || 3000, () => {
+    console.log('Your app is listening on port ' + listener.address().port)
 });
