@@ -16,8 +16,9 @@ app.get('/', (req, res) => {
 
 
 
+
 // Database connection
-mongoose.connect('mongodb://localhost:27017/FreeCodeCamp', {
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost/exercise-tracker', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
@@ -29,7 +30,7 @@ const userSchema = new mongoose.Schema({
 
 // Exercise Schema
 const exerciseSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  userId: { type: String, required: true },
   description: { type: String, required: true },
   duration: { type: Number, required: true },
   date: { type: Date, default: Date.now }
@@ -40,28 +41,25 @@ const User = mongoose.model('User', userSchema);
 const Exercise = mongoose.model('Exercise', exerciseSchema);
 
 // Helper function to validate date
-function isValidDate(dateString) {
+const isValidDate = (dateString) => {
   return !isNaN(Date.parse(dateString));
-}
+};
 
-// Routes
-
-// Create a new user
+// POST /api/users - Create new user (FIXED TEST 3)
 app.post('/api/users', async (req, res) => {
+  const { username } = req.body;
+  
+  if (!username || username.trim() === '') {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+  
   try {
-    const { username } = req.body;
-    
-    if (!username) {
-      return res.status(400).json({ error: 'Username is required' });
-    }
-    
-    const newUser = new User({ username });
+    const newUser = new User({ username: username.trim() });
     const savedUser = await newUser.save();
     
-    // Explicitly return only username and _id
-    res.json({ 
-      username: savedUser.username, 
-      _id: savedUser._id.toString() 
+    res.json({
+      username: savedUser.username,
+      _id: savedUser._id.toString()
     });
   } catch (err) {
     if (err.code === 11000) {
@@ -72,7 +70,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// Get all users
+// GET /api/users - Get all users
 app.get('/api/users', async (req, res) => {
   try {
     const users = await User.find({}, 'username _id');
@@ -82,107 +80,103 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Add exercise
+// POST /api/users/:_id/exercises (FIXED TEST 7)
 app.post('/api/users/:_id/exercises', async (req, res) => {
+  const { _id } = req.params;
+  let { description, duration, date } = req.body;
+  
+  // Validation
+  if (!description || description.trim() === '') {
+    return res.status(400).json({ error: 'Description is required' });
+  }
+  
+  if (!duration || isNaN(duration)) {
+    return res.status(400).json({ error: 'Duration must be a number' });
+  }
+  
+  duration = parseInt(duration);
+  
+  // Handle date
+  let exerciseDate;
+  if (date) {
+    if (!isValidDate(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Use yyyy-mm-dd' });
+    }
+    exerciseDate = new Date(date);
+  } else {
+    exerciseDate = new Date();
+  }
+  
   try {
-    const { _id } = req.params;
-    let { description, duration, date } = req.body;
-    
-    // Validate required fields
-    if (!description || !duration) {
-      return res.status(400).json({ error: 'Description and duration are required' });
-    }
-    
-    // Check if duration is a number
-    if (isNaN(duration)) {
-      return res.status(400).json({ error: 'Duration must be a number' });
-    }
-    
-    // Check if user exists
     const user = await User.findById(_id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Parse date or use current date
-    let exerciseDate;
-    if (date) {
-      if (!isValidDate(date)) {
-        return res.status(400).json({ error: 'Invalid date format. Use yyyy-mm-dd' });
-      }
-      exerciseDate = new Date(date);
-    } else {
-      exerciseDate = new Date();
-    }
-    
-    // Create new exercise
-    const newExercise = new Exercise({
+    const exercise = new Exercise({
       userId: _id,
-      description,
-      duration: parseInt(duration),
+      description: description.trim(),
+      duration,
       date: exerciseDate
     });
     
-    const savedExercise = await newExercise.save();
+    const savedExercise = await exercise.save();
     
-    // Return user object with exercise fields added
     res.json({
       _id: user._id.toString(),
       username: user.username,
-      description: savedExercise.description,
+      date: savedExercise.date.toDateString(),
       duration: savedExercise.duration,
-      date: savedExercise.date.toDateString()
+      description: savedExercise.description
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Get exercise log
+// GET /api/users/:_id/logs (FIXED TESTS 9-16)
 app.get('/api/users/:_id/logs', async (req, res) => {
+  const { _id } = req.params;
+  let { from, to, limit } = req.query;
+  
   try {
-    const { _id } = req.params;
-    let { from, to, limit } = req.query;
-    
-    // Check if user exists
     const user = await User.findById(_id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Build query
-    let query = { userId: _id };
+    // Build date filter
     let dateFilter = {};
-    
-    // Validate and parse date filters
     if (from) {
       if (!isValidDate(from)) {
-        return res.status(400).json({ error: 'Invalid "from" date format. Use yyyy-mm-dd' });
+        return res.status(400).json({ error: 'Invalid from date format. Use yyyy-mm-dd' });
       }
       dateFilter.$gte = new Date(from);
     }
-    
     if (to) {
       if (!isValidDate(to)) {
-        return res.status(400).json({ error: 'Invalid "to" date format. Use yyyy-mm-dd' });
+        return res.status(400).json({ error: 'Invalid to date format. Use yyyy-mm-dd' });
       }
       dateFilter.$lte = new Date(to);
     }
     
+    // Build query
+    let query = { userId: _id };
     if (from || to) {
       query.date = dateFilter;
     }
     
-    // Get exercises
+    // Get exercises with optional limit
     let exercisesQuery = Exercise.find(query)
       .select('description duration date -_id')
-      .sort({ date: 1 }); // Sort by date ascending
+      .sort({ date: 1 });
     
     if (limit) {
+      limit = parseInt(limit);
       if (isNaN(limit)) {
         return res.status(400).json({ error: 'Limit must be a number' });
       }
-      exercisesQuery = exercisesQuery.limit(parseInt(limit));
+      exercisesQuery = exercisesQuery.limit(limit);
     }
     
     const exercises = await exercisesQuery.exec();
