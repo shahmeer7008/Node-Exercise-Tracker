@@ -147,7 +147,7 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       log: log.map(ex => ({
         description: ex.description,
         duration: ex.duration,
-        date: new Date(ex.date).toDateString() // Ensure consistent dateString format
+        date: ex.date // Just use the stored date string directly
       }))
     });
   } catch (err) {
@@ -155,7 +155,6 @@ app.get('/api/users/:_id/logs', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-
 // Server
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
