@@ -17,7 +17,7 @@ app.get('/', (req, res) => {
 
 
 // Database connection
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost/exercise-tracker', {
+mongoose.connect('mongodb://localhost:27017/FreeCodeCamp', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
