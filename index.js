@@ -58,13 +58,13 @@ app.post('/api/users', async (req, res) => {
 
 app.get('/api/users', async (req, res) => {
   try {
-    const users = await Person.find({}, 'username _id')
-    res.json(users)
+    const users = await Person.find({}, 'username _id').lean(); // Add .lean() to get plain JS objects
+    res.json(users);
   } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Server error' })
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
-})
+});
 
 app.post('/api/users/:_id/exercises', async (req, res) => {
   try {
@@ -116,28 +116,28 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
 
 app.get('/api/users/:_id/logs', async (req, res) => {
   try {
-    const { from, to, limit } = req.query
-    const user = await Person.findById(req.params._id)
+    const { from, to, limit } = req.query;
+    const user = await Person.findById(req.params._id);
     
     if (!user) {
-      return res.status(404).json({ error: 'User not found' })
+      return res.status(404).json({ error: 'User not found' });
     }
 
-    let log = [...user.log]
+    let log = [...user.log];
 
     // Filter by date range
     if (from) {
-      const fromDate = new Date(from)
-      log = log.filter(ex => new Date(ex.date) >= fromDate)
+      const fromDate = new Date(from);
+      log = log.filter(ex => new Date(ex.date) >= fromDate);
     }
     if (to) {
-      const toDate = new Date(to)
-      log = log.filter(ex => new Date(ex.date) <= toDate)
+      const toDate = new Date(to);
+      log = log.filter(ex => new Date(ex.date) <= toDate);
     }
 
     // Apply limit
     if (limit) {
-      log = log.slice(0, parseInt(limit))
+      log = log.slice(0, parseInt(limit));
     }
 
     res.json({
@@ -147,14 +147,14 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       log: log.map(ex => ({
         description: ex.description,
         duration: ex.duration,
-        date: ex.date
+        date: new Date(ex.date).toDateString() // Ensure consistent dateString format
       }))
-    })
+    });
   } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Server error' })
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
-})
+});
 
 // Server
 const PORT = process.env.PORT || 3000
