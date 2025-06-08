@@ -119,9 +119,7 @@ app.get('/api/users/:_id/logs', async (req, res) => {
     const { from, to, limit } = req.query;
     const user = await Person.findById(req.params._id);
     
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     let log = [...user.log];
 
@@ -136,23 +134,21 @@ app.get('/api/users/:_id/logs', async (req, res) => {
     }
 
     // Apply limit
-    if (limit) {
-      log = log.slice(0, parseInt(limit));
-    }
+    if (limit) log = log.slice(0, parseInt(limit));
 
-    // Ensure all dates are in the correct dateString format
-    const formattedLog = log.map(ex => ({
-      description: ex.description,
-      duration: ex.duration,
-      date: new Date(ex.date).toDateString() // Force to dateString format
-    }));
-
-    res.json({
+    // Format response
+    const response = {
       _id: user._id,
       username: user.username,
-      count: formattedLog.length,
-      log: formattedLog
-    });
+      count: log.length,
+      log: log.map(ex => ({
+        description: ex.description,
+        duration: ex.duration,
+        date: new Date(ex.date).toDateString() // Force correct format
+      }))
+    };
+
+    res.json(response);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
