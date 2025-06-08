@@ -33,28 +33,23 @@ const exerciseSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   description: { type: String, required: true },
   duration: { type: Number, required: true },
-  date: { type: Date, default: Date.now }
+  date: { type: Date }
 });
 
 // Models
 const User = mongoose.model('User', userSchema);
 const Exercise = mongoose.model('Exercise', exerciseSchema);
 
-// Helper function to validate date
-const isValidDate = (dateString) => {
-  return !isNaN(Date.parse(dateString));
-};
-
-// POST /api/users - Create new user (FIXED TEST 3)
+// POST /api/users - Create new user
 app.post('/api/users', async (req, res) => {
-  const { username } = req.body;
-  
-  if (!username || username.trim() === '') {
-    return res.status(400).json({ error: 'Username is required' });
-  }
-  
   try {
-    const newUser = new User({ username: username.trim() });
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    const newUser = new User({ username });
     const savedUser = await newUser.save();
     
     res.json({
@@ -80,34 +75,28 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// POST /api/users/:_id/exercises (FIXED TEST 7)
+// POST /api/users/:_id/exercises - Add exercise
 app.post('/api/users/:_id/exercises', async (req, res) => {
-  const { _id } = req.params;
-  let { description, duration, date } = req.body;
-  
-  // Validation
-  if (!description || description.trim() === '') {
-    return res.status(400).json({ error: 'Description is required' });
-  }
-  
-  if (!duration || isNaN(duration)) {
-    return res.status(400).json({ error: 'Duration must be a number' });
-  }
-  
-  duration = parseInt(duration);
-  
-  // Handle date
-  let exerciseDate;
-  if (date) {
-    if (!isValidDate(date)) {
-      return res.status(400).json({ error: 'Invalid date format. Use yyyy-mm-dd' });
-    }
-    exerciseDate = new Date(date);
-  } else {
-    exerciseDate = new Date();
-  }
-  
   try {
+    const { _id } = req.params;
+    let { description, duration, date } = req.body;
+    
+    // Validation
+    if (!description) {
+      return res.status(400).json({ error: 'Description is required' });
+    }
+    
+    if (!duration || isNaN(duration)) {
+      return res.status(400).json({ error: 'Duration must be a number' });
+    }
+    
+    duration = parseInt(duration);
+    date = date ? new Date(date) : new Date();
+    
+    if (isNaN(date.getTime())) {
+      return res.status(400).json({ error: 'Invalid date' });
+    }
+    
     const user = await User.findById(_id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -115,15 +104,15 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     
     const exercise = new Exercise({
       userId: _id,
-      description: description.trim(),
+      description,
       duration,
-      date: exerciseDate
+      date
     });
     
     const savedExercise = await exercise.save();
     
     res.json({
-      _id: user._id.toString(),
+      _id: user._id,
       username: user.username,
       date: savedExercise.date.toDateString(),
       duration: savedExercise.duration,
@@ -134,43 +123,45 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
   }
 });
 
-// GET /api/users/:_id/logs (FIXED TESTS 9-16)
+// GET /api/users/:_id/logs - Get exercise log
 app.get('/api/users/:_id/logs', async (req, res) => {
-  const { _id } = req.params;
-  let { from, to, limit } = req.query;
-  
   try {
+    const { _id } = req.params;
+    let { from, to, limit } = req.query;
+    
+    // Validate user exists
     const user = await User.findById(_id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Build date filter
-    let dateFilter = {};
-    if (from) {
-      if (!isValidDate(from)) {
-        return res.status(400).json({ error: 'Invalid from date format. Use yyyy-mm-dd' });
-      }
-      dateFilter.$gte = new Date(from);
-    }
-    if (to) {
-      if (!isValidDate(to)) {
-        return res.status(400).json({ error: 'Invalid to date format. Use yyyy-mm-dd' });
-      }
-      dateFilter.$lte = new Date(to);
-    }
-    
     // Build query
     let query = { userId: _id };
+    let dateFilter = {};
+    
+    // Handle date filters
+    if (from) {
+      const fromDate = new Date(from);
+      if (isNaN(fromDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid from date' });
+      }
+      dateFilter.$gte = fromDate;
+    }
+    
+    if (to) {
+      const toDate = new Date(to);
+      if (isNaN(toDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid to date' });
+      }
+      dateFilter.$lte = toDate;
+    }
+    
     if (from || to) {
       query.date = dateFilter;
     }
     
-    // Get exercises with optional limit
-    let exercisesQuery = Exercise.find(query)
-      .select('description duration date -_id')
-      .sort({ date: 1 });
-    
+    // Handle limit
+    let exercisesQuery = Exercise.find(query);
     if (limit) {
       limit = parseInt(limit);
       if (isNaN(limit)) {
@@ -179,26 +170,25 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       exercisesQuery = exercisesQuery.limit(limit);
     }
     
-    const exercises = await exercisesQuery.exec();
+    const exercises = await exercisesQuery.select('description duration date').exec();
     
-    // Format log items
-    const log = exercises.map(exercise => ({
-      description: String(exercise.description),
-      duration: Number(exercise.duration),
-      date: exercise.date.toDateString()
+    // Format response
+    const log = exercises.map(ex => ({
+      description: ex.description,
+      duration: ex.duration,
+      date: ex.date.toDateString()
     }));
     
     res.json({
-      _id: user._id.toString(),
+      _id: user._id,
       username: user.username,
-      count: log.length,
+      count: exercises.length,
       log
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
-
 
 
 
