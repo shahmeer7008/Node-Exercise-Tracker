@@ -25,7 +25,7 @@ mongoose.connect('mongodb://localhost:27017/FreeCodeCamp', {
 
 // Schema and Model
 const personSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
+  username: { type: String, required: true},
   count: { type: Number, default: 0 },
   log: [{
     description: { type: String, required: true },
